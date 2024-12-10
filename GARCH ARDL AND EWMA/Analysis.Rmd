@@ -1,0 +1,277 @@
+---
+title: "GARCH model, EWMA, and ARDL"
+output: html_document
+date: "2023-05-23"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = T, message = F)
+```
+
+```{r libraries}
+# Install and load the rugarch & rmgarch package
+#install.packages("rugarch","rmgarch")
+library(rugarch)
+library(rmgarch)
+# Install and load the qcc package
+#install.packages("qcc")
+library(qcc)
+# Install and load the ARDL package
+#install.packages("ARDL")
+library(ARDL)
+
+library(summarytools)
+library(tidyverse)
+library(xts)
+library(ggplot2)
+library(vars)
+```
+
+
+```{r import data}
+Data=read.csv("Return.csv")
+#converting Dates variable to Date format 
+Data$Dates=as.Date(Data$Dates)
+```
+
+# Introduction
+In this analysis, we aim to examine the co-dependence between different segments of the financial market during the COVID-19 crisis and compare it to some of the biggest stock market financial crises in history. Our objective is to gain insights into how various financial markets have reacted during these challenging times and assess the relationship between stock index values and oil prices using the GARCH (Generalized Autoregressive Conditional Heteroskedasticity), ARDL (Autoregressive Distributed Lag), and EWMA (Exponentially Weighted Moving Average) models.
+
+The COVID-19 pandemic in 2020 the global economies and financial markets were greatly disrupted, causing significant volatility and uncertainty. By studying the co-dependence between different financial market segments, we can better understand the association between stock indices and oil prices, which are two crucial indicators of economic performance.
+
+To provide a comprehensive analysis, we will compare the Covid crisis with some of the most significant financial crises in history since 1997, including the Dot-Com Bubble Burst in 2000-2002, and the Global Financial Crisis 2008. By drawing parallels and identifying differences, we can gain valuable insights into the unique characteristics and implications of the COVID-19 crisis.
+
+We will utilize the GARCH model, ARDL model, and EWMA method to analyze the relationship between stock index values and oil prices. These analytically tools allow us to capture the volatility, long-term equilibrium, and short-term dynamics between these variables, providing a robust framework for our analysis.
+
+By examining historical data and applying these models, we aim to uncover patterns, assess the impact of the crises on different financial market segments, and provide valuable insights into the co-dependence between stock indices and oil prices. These findings can offer valuable guidance for investors, policymakers, and market participants navigating the current crisis and future challenges.
+
+## Data
+Different stock index were collected and merged to form a data frame which  has 8,368 observations and 11 variables. The variables include `Dates` column which represents the dates of the observations.
+
+- Brent_Price: Daily Brent oil prices.
+- Cac40_Return: Daily return of CAC40 stock index.
+- Dax_Return: Daily return of DAX stock index.
+- Dj_Return: Daily return of Dow Jones stock index.
+- FTSE_MIB_Return: Daily return of FTSE MIB stock index.
+- FTSE_Spain_Return: Daily return of FTSE Spain stock index.
+- FTSE100_Return: Daily return of FTSE100 stock index.
+- Nasdaq_Return: Daily return of NASDAQ stock index.
+- SP500_Return: Daily return of S&P500 stock index.
+- Wti_Price: Daily WTI oil prices.
+
+```{r data summary}
+dfSummary(Data)
+```
+
+The descriptive analysis indicated that there were no duplicate rows in the data frame, suggesting that each row represents a unique observation.
+
+The first data was collected in January 31, 1997, while the last date data was collected was January 6, 2023. The range of the dates spans approximately 25 years, 11 months and 6 days.
+
+The "Brent_Price" variable represents the price of Brent crude oil. The average value was 61.3 and a standard deviation of 31.5 during the 25 years. The variable had 6348 valid observations and 2020 missing values.
+
+The data includes various stock indices, such as CAC40, DAX, Dow Jones, FTSE MIB, FTSE Spain, FTSE100, NASDAQ, and S&P 500. Each index has its respective return values. The mean, standard deviation, and number of valid observations vary for each index.
+
+The "WTI_Price" variable represents the price of WTI crude oil. The average value was 59 and with a standard deviation of 28 over the 25 years.The variable had 6280 valid observations and 2088 missing values.
+
+# Methods
+## Data preperation
+To assess the relationship between stock indices and oil prices using the three models, we first prepared the Data by gather historical data for the stock indices (e.g., CAC40, DAX, Dow_Jones, etc.) and oil prices (e.g., Brent_Price, WTI). Next we converted the data to time series format and align the observations based on the corresponding dates.Finally we create a multivariate time series model using VAR.
+
+```{r}
+#Eliminating missing values in the data
+Data1=na.omit(Data)
+#eliminated rows
+dim(Data)[1]-dim(Data1)[1]
+#Converting to time series
+Ts=xts(Data1[-1],Data1$Dates)
+```
+
+```{r visualization}
+ggplot(data = Data1,aes(x=Dates)) + 
+  geom_line(aes(y=Brent_Price,color="Brent_Price")) +
+  geom_line(aes(y=Wti_Price,color="Wti_Price"))+
+  labs(title = "Crude Oil price from 1997 to 2023",y="Price")+
+  theme_dark()+
+  scale_color_discrete("Crude oil")
+```
+
+```{r differencing}
+#de-trending (converting to stationary)
+dif_Ts=diff(Ts)
+```
+
+## Generalized Autoregressive Conditional Heteroskedasticity (GARCH)
+This is a statistical model used to analyze and forecast volatility in financial time series data. It is an extension of the ARCH (Autoregressive Conditional Heteroskedasticity) model and accounts for the conditional variance clustering or volatility clustering observed in financial data.
+
+The GARCH model assumes that the variance of a variable is a function of its past variances and past squared errors. It captures the time-varying nature of volatility by incorporating lagged values of the conditional variance and squared errors into the model. By estimating the parameters of the GARCH model, one can obtain insights into the dynamics of volatility and potentially improve risk management and forecasting in financial analysis.
+
+**Equations and Assumptions in the GARCH Model**
+The GARCH(p, q) model can be represented by the following equations:
+
+Mean Equation: $yt = μ + εt$
+
+Variance Equation: $σt^2 = ω + α1εt-1^2 + α2εt-2^2 + ... + αpεt-p^2 + β1σt-1^2 + β2σt-2^2 + ... + βqσt-q^2$
+
+**Assumptions in the GARCH model**
+
+- Stationary: The time series data should be stationary, meaning that the mean and variance of the series remain constant over time or exhibit only predictable changes.
+
+- Serial Independence: The residuals (εt) in the mean equation are assumed to be independently and identically distributed (i.i.d) with a mean of zero and constant variance.
+
+- Conditional Heteroscedasticity: The variance of the residuals is assumed to be time-varying and dependent on past variances (ARCH terms) and past squared errors (GARCH terms).
+
+- Non-negativity of Variance: The variance is always non-negative, ensuring that the GARCH model produces non-negative conditional variances.
+
+It is important to note that the GARCH model assumptions and specifications may vary depending on the specific GARCH variant used, such as GARCH(1,1), GARCH(2,1), etc.
+
+Using the GARCH Model to Assess the Relationship between Stock Indices and Oil Prices
+
+Fit separate GARCH models for each stock index and oil price series using the historical data. This involves specifying the appropriate GARCH model order (e.g., GARCH(1,1), GARCH(2,1), etc.) and estimating the model parameters. The GARCH model parameters can be estimated using methods like maximum likelihood estimation.
+
+```{r DCC}
+# replicate the uni-variate GRACH model 10 times
+spec = multispec(replicate(10,
+                         ugarchspec(mean.model = list(armaOrder =c(1,0)))))
+
+multf = multifit(spec,dif_Ts[-1,])
+
+spec1 = dccspec(uspec = spec, dccOrder = c(1, 1), distribution = 'mvnorm')
+#Model Estimation
+fit1 = dccfit(spec1, data = dif_Ts[-1,], fit.control = list(eval.se = TRUE), fit = multf)
+```
+
+Examine the estimated GARCH model parameters, particularly the ARCH and GARCH coefficients. These coefficients provide insights into the persistence of volatility and the impact of past variances and squared errors on future volatility. Compare and analyze the volatility dynamics across different stock indices and oil prices.
+```{r}
+fit1
+```
+
+Assess Correlation: Use the estimated GARCH models to assess the correlation or co-movement between stock indices and oil prices. The GARCH models can provide conditional correlations that account for the time-varying nature of volatility. Analyze the correlation dynamics and identify periods of increased or decreased correlation between stock indices and oil prices.
+
+```{r }
+# Get the model based time varying covariance (arrays) and correlation matrices
+cov1 = rcov(fit1)  # extracts the covariance matrix
+cor1 = rcor(fit1)  # extracts the correlation 
+
+plt_dt=t(cor1[1,2:10,])
+
+as.xts(plt_dt) %>% plot()
+```
+
+The Exponentially Weighted Moving Average (EWMA) method is a statistical technique used to estimate the volatility of financial time series data. It is commonly employed in financial analysis to analyze and forecast volatility.
+
+EWMA assigns exponentially decreasing weights to past observations, with more weight given to recent data points and less weight given to older data points. By giving greater importance to recent observations, the EWMA method captures more recent trends and changes in volatility, providing a more responsive measure of volatility compared to other methods such as simple moving average.
+
+The relevance of EWMA in financial analysis lies in its ability to adapt to changing market conditions and capture short-term dynamics in volatility. It is particularly useful when volatility exhibits clustering, meaning periods of high volatility are followed by subsequent periods of high volatility.
+
+**Equations and Assumptions in the EWMA Method**
+The EWMA volatility estimate for time period t can be calculated using the following equation:
+
+$σ_t^2 = λ * R_t^2 + (1 - λ) * σ_t-1^2$
+
+where:
+
+- $σ_t^2$ is the EWMA volatility estimate at time `t`.
+- $R_t$ is the log return at time `t`.
+- $\lambda$ is the smoothing factor, typically between 0 and 1.
+- $σ_t-1^2$ is the EWMA volatility estimate at the previous time period.
+
+**Assumptions in the EWMA method**
+
+- Log Returns Stationarity: The log returns of the series are assumed to be stationary or exhibit only predictable changes over time.
+
+- Exponential Weighting: The weights assigned to the log returns are exponentially decreasing, giving more weight to recent observations and less weight to older observations.
+
+- Constant Smoothing Factor: The chosen smoothing factor ($\lambda$) remains constant throughout the analysis and does not vary over time.
+
+It's important to note that the choice of the smoothing factor ($\lambda$) is subjective and can significantly impact the volatility estimates. Different values of λ can lead to varying levels of responsiveness to recent data and affect the interpretation of volatility dynamics.
+
+>Applying EWMA to Analyze the Relationship between Stock Indices and Oil Prices:
+
+To analyze the relationship between stock indices and oil prices using the EWMA method, you can follow these steps:
+
+Compute the log returns for each series by taking the natural logarithm of the ratio of consecutive prices. Log returns are often used in financial analysis to account for the percentage change in prices.
+
+```{r}
+#log return
+log_Ts=apply(Data1[-1],2,function(x) log(x))
+
+log_Ts=data.frame(Dates=Data1$Dates,log_Ts) %>% na.omit()
+```
+
+Apply the EWMA method to estimate the volatility of each series based on the log returns. Assign weights to the log returns, with higher weights for recent observations and decreasing weights for older observations.
+
+Choose an appropriate smoothing factor, typically denoted as lambda ($\lambda$), which determines the rate at which weights decay. A smaller lambda places more emphasis on recent observations, while a larger lambda places more weight on historical observations.
+
+ Compute the EWMA volatility for each series by applying the weighted average to the squared log returns. The volatility estimates are obtained as the square root of the EWMA volatilities.
+
+Analyze the resulting volatility estimates to identify patterns, changes, and relationships between stock indices and oil prices. Look for periods of increased or decreased volatility and compare the volatility dynamics across different series.
+
+```{r EWMA}
+ewma_data=ewma(log_Ts[-1],lambda = 0.2,nsigmas=3)
+
+summary(ewma_data)
+```
+
+The Autoregressive Distributed Lag (ARDL) model is a econometric modeling framework used to analyze the long-term relationship between variables in time series data. It allows for the investigation of both short-term dynamics and long-term equilibrium relationships between variables.
+
+ARDL is particularly useful when examining the relationship between variables that may exhibit a combination of stationary and non-stationary properties. It can capture both short-term adjustments and the long-run equilibrium between the variables.
+
+**Equations and Assumptions in the ARDL Model**
+The ARDL model can be represented by the following equation:
+
+$yt = β0 + β1X1_t + β2X2_t + ... + βnXn_t + φ1y_t-1 + φ2y_t-2 + ... + φpy_t-p + ε_t$
+
+where:
+
+$y_t$ represents the dependent variable (e.g., stock index).
+$X1_t, X2_t, ..., Xn_t$ represent the independent variables (e.g., oil prices).
+$φ1, φ2, ..., φp$ represent the coefficients of the lagged dependent variable $(y_{t-1}, y_{t-2}, ..., y_{t-p})$.
+$β0, β1, β2, ..., βn$ represent the coefficients of the independent variables.
+$εt$ is the error term.
+
+**Assumptions in the ARDL model**
+
+- Stationarity: The variables in the model are assumed to be stationary or transformed to achieve stationarity.
+
+- No Perfect Collinearity: The independent variables should not exhibit perfect collinearity to avoid numerical instability.
+
+- No Autocorrelation: The error term should not exhibit serial correlation to ensure the efficiency of the parameter estimates.
+
+- No Endogeneity: The independent variables should be exogenous and not influenced by the error term.
+
+>Application of ARDL in Analyzing the Relationship between Stock Indices and Oil Prices:
+
+To analyze the relationship between stock indices and oil prices using the ARDL model.
+
+Stationarity Analysis: Conduct unit root tests (such as the Augmented Dickey-Fuller or Phillips-Perron tests) to assess the stationarity properties of the variables. Determine if the variables are stationary in levels or if they require differencing to achieve stationarity.
+
+Model Specification: Specify the appropriate ARDL model based on the stationarity properties of the variables. The ARDL model includes lagged values of both stock indices and oil prices to capture the short-term dynamics and potential long-term equilibrium relationship.
+
+Estimation and Inference: Estimate the parameters of the ARDL model using suitable estimation techniques like ordinary least squares (OLS). Conduct hypothesis tests on the coefficients to assess the significance of the relationships between the variables.
+
+
+```{r ARDL}
+# Fit ARDL model
+ardl_model = ardl(Brent_Price ~ Cac40_Return + Dax_Return + Dj_Return +
+                     FTSE_MIB_Return + FTSE_Spain_Return + FTSE100_Return +
+                     Nasdaq_Return + SP500_Return + Wti_Price,
+                   data = data.frame(dif_Ts), 
+                   order = c(1,rep(1,9)),
+                  start="1997-12-31",end="2023-01-06")
+
+
+summary(ardl_model)
+
+```
+
+# Conclusion
+In this analysis, we investigated the relationship between stock indices and oil prices using various methods, including the EWMA (Exponentially Weighted Moving Average) method, the ARDL (Autoregressive Distributed Lag) model and GARCH (Generalized Autoregressive Conditional Heteroskedasticity).
+
+The EWMA method was applied to estimate the volatility of each series based on the log returns.We assigned weights to the log returns, with higher weights for recent observations and decreasing weights for older observations.This allowed us to capture the changing volatility patterns over time and assess the risk associated with each series.
+
+The ARDL model was employed to analyze the relationship between stock indices and oil prices.The model was estimated, and the coefficients, p-values, and diagnostic statistics were analyzed.
+
+the GARCH model was employed and to analyze the relationship between stock indices and oil prices. the correlation coefficients were extracted and plotted to evaluate the association over time.
+
+The results from the ARDL model provided insights into the relationship between stock indices and oil prices.The coefficient estimates and their significance indicated the direction and strength of the relationship.
+It was found that changes in oil prices had a only a slight impact on stock indices but was not significant, suggesting a no relationship between the two variables.Further analysis of the coefficients and their signs provided a deeper understanding of the specific dynamics between stock indices and oil prices.
