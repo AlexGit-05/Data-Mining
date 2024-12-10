@@ -1,0 +1,328 @@
+---
+title: 'The Impact of ESG Components on equity performance : A Comparative Analysis
+  across Indexes and Sectors '
+author: "William"
+date: "2023-08-12"
+output:
+  html_document:
+    df_print: paged
+  word_document:
+    fig_caption: yes
+    reference_docx: Report.docx
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+library(tidyverse)
+library(readxl)
+library(visdat)
+library(knitr)
+#library(kableExtra)
+library(summarytools)
+library(pastecs)
+library(corrplot)
+library(flextable)
+library(gt)
+```
+
+# Data Cleaning
+
+```{r}
+#import data
+data=as.data.frame(read_excel('mergeddata  (1).xlsx'))#merged data) 
+```
+
+```{r}
+# Data cleaning
+# Structure of the data
+glimpse(data)
+
+#checking for duplicated data
+anyDuplicated(data)
+
+# Identify stock tickers for each company in 2020
+stock_2010 = data %>%
+  filter(Year == 2020) %>%
+  select(Stock, Name)
+
+# Filter out the duplicates in 2021 based on 2010 data
+data = data %>%
+  left_join(stock_2010, by = "Name", suffix = c("", "_2020")) %>%
+  mutate(keep_row = if_else(Year != 2021 | (Year == 2021 & Stock == Stock_2020), TRUE, FALSE)) %>%
+  filter(keep_row) %>%
+  select(-Stock_2020, -keep_row)
+
+
+# checking fr missing values
+anyNA(data)
+#Visualizing missing data
+vis_miss(data, facet = Year)
+
+data %>%
+  group_by(Year) %>%
+  summarise(across(everything(), ~sum(is.na(.x)), .names = "missing_in_{.col}"))
+# missing values per column
+colSums(is.na(data))
+# For reliability we will eliminate all missing values in the data
+data_clean = data %>%
+  filter(!is.na(`Close price`) & !is.na(`Refinitiv - ESG Score`))
+
+# Mapping stock indices to countries
+data_clean$Country = ifelse(data_clean$Stock == 'SPX', 'USA',
+                            ifelse(data_clean$Stock == 'FTSE', 'UK',
+                                   ifelse(data_clean$Stock == 'N225', 'Japan', NA)))
+
+char = c("Stock", "Year", "TRBC Business Sector", "Country")
+data_clean[char] = lapply(data_clean[char], factor)
+
+```
+
+
+
+# Descriptive Exploration
+
+```{r}
+a=data_clean %>% 
+  select(Stock, Year) %>% 
+  table#%>% 
+  
+kable(a)
+```
+
+
+```{r}
+data_clean %>% 
+  select(`TRBC Business Sector`, Year) %>% 
+  table %>% kable()
+  
+```
+
+
+
+```{r}
+data_clean %>% 
+  select(where(is.numeric)) %>% 
+  descr(stats = c("mean", "sd", "min", "max","skewness"), transpose = TRUE) %>% 
+  round(4) %>% 
+  data.frame(`Variable Name`=row.names(.)) %>%
+  select(c(6,1:5)) %>% 
+  regulartable() %>% 
+  bg(bg = "#000080", part = "header") %>%
+  color(color = "white", part = "header")
+
+```
+
+```{r}
+data_clean %>%
+  ggplot(aes(`Close price`, fill = Stock)) +
+  geom_density(alpha = 0.5)+
+  labs(x = "Cosing Price", title = "Density Plot of Stock Close Prices") +
+  theme_bw() +
+  scale_fill_manual(values = c("green", "blue", "red"))
+```
+
+```{r}
+# controlling outliers using log
+data_clean %>%
+  ggplot(aes(log(`Close price`), fill = Stock)) +
+  geom_density(alpha = 0.5)+
+  labs(x = "Log Cosing Price", title = "Density Plot of log Close Prices") +
+  theme_bw() +
+  scale_fill_manual(values = c("green", "blue", "red"))
+```
+
+
+```{r}
+data_clean %>%
+  group_by(Stock, Year) %>%
+  summarize(Sum_Close_Price = sum(`Close price`)) %>% 
+  ggplot(aes(x = Year, y = Sum_Close_Price, group = Stock, color = Stock)) +
+  geom_line() +
+  geom_point() +
+  labs(x = "Year", y = "Sum of Close Price", 
+       title = "Close Prices by Year") +
+  scale_color_manual(values = c("green", "blue", "red"))+
+  theme_bw()
+
+data_clean %>%
+  group_by(Stock,Year) %>%
+  summarize(Mean_Close_Price = mean(`Close price`, na.rm = TRUE)) %>%
+  ggplot(aes(x = Year, y = Mean_Close_Price, fill = Stock)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  labs(x = "Stock", y = "Mean Close Price", 
+       title = "Mean Close Prices by Stock") +
+  theme_bw() +
+  scale_fill_manual(values = c("green", "blue", "red"))
+
+
+data_clean %>%
+  ggplot(aes(Year, `Close price`, fill = Stock)) +
+  geom_boxplot()+
+  labs(x = "Year", title = "Close Prices by Stock") +
+  theme_bw() +
+  scale_fill_manual(values = c("green", "blue", "red"))
+
+```
+```{r}
+data_clean %>% 
+  ggplot(aes(`Refinitiv - ESG Score`, fill = Stock, 
+             fill = Stock)) +
+  geom_density(alpha = 0.2) +
+  labs(title = "Density plot of ESG Score") +
+  theme_bw()
+```
+
+
+```{r}
+data_clean %>%
+  group_by(Stock, `TRBC Business Sector`) %>%
+  summarize(mean_Close_Price = mean(`Close price`)) %>% 
+  ggplot(aes(x =`TRBC Business Sector`,y = mean_Close_Price,fill = Stock)) +
+  geom_bar(stat = 'identity') +
+  labs(x = "Year", y = "Average Close Price", 
+       title = "Close Prices by Industry") +
+  scale_fill_manual(values = c("green", "blue", "red"))+
+  coord_flip()+
+  theme_bw()
+```
+
+
+```{r}
+
+data_clean %>% 
+  ggplot(aes(x = `Refinitiv - ESG Score`, y = `Close price`, 
+             color = Stock)) +
+  geom_point() +
+  labs(x = "ESG Score", y = "Close Price", 
+       title = "ESG Combined Score vs. Close Price") +
+  scale_color_manual(values = c("green", "blue", "red"))+
+  theme_bw()
+
+```
+
+As shown from the plot the higher return was generated by FTSE and SPX companies. 
+
+```{r}
+data_clean %>%
+  group_by(Stock, Year) %>%
+  summarize(Mean_5Year_Return = mean(`Refinitiv - ESG Score`)) %>%
+  ggplot(aes(x = Year, y = Mean_5Year_Return, fill = Stock)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  labs(x = "Stock", y = "ESG Score", title = "ESG Combined Score by Stock") +
+  theme_bw()+
+   scale_fill_manual(values = c("green", "blue", "red"))
+
+```
+
+
+```{r}
+data_clean %>% 
+  select(ends_with('score')) %>% 
+  vis_cor(cor_method = "pearson")
+
+data_clean %>% 
+  select(c(5,20:25))%>% #cor(use = "complete.obs")
+  vis_cor(cor_method = "pearson")
+```
+
+There is a significant relationship between ESG scores and stock performance in the US, UK, and Japan
+```{r}
+cor.test(data_clean$`Refinitiv - ESG Score`, data_clean$`Close price`,
+         method = 'spearman')
+```
+How do ESG scores impact stock performance in the US, UK, and Japan, and does this impact vary across different sectors
+
+```{r}
+aov(`Refinitiv - ESG Score` ~ Country + Year, data = data_clean) %>% 
+  summary()
+```
+The relationship between ESG scores and stock performance varies across different sectors within each country
+
+```{r}
+aov(cbind(`Refinitiv - ESG Score`,`Close price`) ~ Country , data = data_clean) %>% 
+  summary()
+```
+Do companies with higher ESG scores demonstrate better financial resilience during economic downturns & upturns compared to those with lower ESG scores within each industry in the S&P 500, FTSE 250, and N225?
+
+```{r}
+# Higher standardized ESG score >=mean
+# Higher standardized ESG score <mean
+avrg=mean(data_clean$`Refinitiv - ESG Score`)
+
+data_clean$ESG_Level = ifelse(data_clean$`Refinitiv - ESG Score` >= avrg,
+                              'High','Low') %>%
+  as.factor()
+
+data_clean$Upturn = ifelse(as.numeric(data_clean$Year)>2,
+                           'Upturn','Downturn') %>% as.factor()
+```
+
+
+To address this research question, the subsequent hypotheses were crafted:
+H2: Companies with higher ESG scores exhibit greater financial resilience during economic downturns compared to those with lower scores within the S&P 500, FTSE 250, and N225.
+
+```{r}
+data_clean %>%
+  group_by(Stock, ESG_Level, Upturn) %>%
+  summarize(Mean_5Year_Return = mean(`Close price`)) %>%
+  ggplot(aes(x = Upturn, y = Mean_5Year_Return, fill = ESG_Level)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  labs(x = "Period", y = "Closing Price", title = "Company Performance") +
+  theme_bw() +
+   scale_fill_manual(values = c("red","blue"))
+
+
+```
+
+H2a: Companies with higher ESG scores showcase superior financial performance during economic upturns compared to those with lower scores within the S&P 500, FTSE 250, and N225.
+
+```{r}
+aov(`Close price` ~ Stock * ESG_Level * Upturn , data = data_clean) %>% 
+  summary()
+```
+
+# Modeling
+## Regression analysis
+```{r}
+#Regression analysis
+# Regression model not control for sector 
+Model1 = lm(log(`Close price`)~`Refinitiv - ESG Score` + Country + Year, 
+            data = data_clean)
+# Regression model controlling for sector 
+Model2 = lm(log(`Close price`)~`Refinitiv - ESG Score` + Country + Year + 
+              `TRBC Business Sector`, data = data_clean)
+
+modelsummary::modelsummary(list(Model1,Model2),
+                            statistic = c("p.value"))
+```
+
+
+```{r}
+# model validation
+plot(Model2)
+```
+
+## DID
+
+```{r}
+# Load necessary packages
+#install.packages("plm")
+library(plm)
+
+data_clean$ESG_Level = ifelse(data_clean$ESG_Level == 'High',1,0) 
+data_clean$Upturn = ifelse(data_clean$Year =='Upturn',1,0)
+
+# Run DiD regression
+Model3 <- plm(log(Close.price) ~ TRBC.Business.Sector + ESG_Level + Upturn +
+                ESG_Level:Upturn ,data = data_clean, 
+              model = "pooling")
+
+
+# Display results
+modelsummary::modelsummary(Model3,
+                            statistic = c("p.value"))
+
+```
+
+
+
