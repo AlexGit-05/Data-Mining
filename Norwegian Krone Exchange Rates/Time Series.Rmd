@@ -1,0 +1,301 @@
+---
+title: "Statistical Analysis and Forecasting Project"
+output: html_document
+date: "`r Sys.Date()`"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+#install and load libraries
+#install.packages("xml2")
+library(xml2)
+library(tidyverse)
+library(zoo)
+#install.packages("tseries")
+library(tseries)
+library(forecast)
+library(strucchange)
+#install.packages("BreakPoints")
+library(BreakPoints)
+```
+
+
+```{r data import}
+# Read the XML file
+xml_file = read_xml("nok.xml")
+
+# Declare the namespace
+ns = xml_ns(xml_file)
+
+# Find all <Obs> nodes and extract attributes
+time_periods = xml_find_all(xml_file, ".//d2:Obs/@TIME_PERIOD", ns) %>% xml_text()
+obs_values = xml_find_all(xml_file, ".//d2:Obs/@OBS_VALUE", ns) %>% xml_text()
+
+# Create a data frame
+df = data.frame(
+  DAY = time_periods,
+  NOK = as.numeric(obs_values)
+)
+
+str(df)
+```
+
+The data has 6,648 observations. It ranges from 1999-01-04 to 2024-12-13 excluding the weekends both Saturday and Sunday.
+
+```{r}
+# Checking for missing values
+any(is.na(df)) %>% print()
+
+# checking for duplicates
+any(duplicated(df)) %>% print()
+```
+There are no present missing values 
+
+```{r data transformation}
+# changing date from character to date
+df$DAY = ymd(df$DAY)
+
+# Summary of df
+summary(df)
+
+# Variance
+sd(df$NOK)^2 %>% print()
+
+# Convert to zoo time series
+ts_data = ts(zoo(df$NOK, order.by = df$DAY), frequency = 5)
+
+# Perform Augmented Dickey-Fuller Test for stationarity
+adf.test(ts_data) %>% print()
+
+# Perform ACF and PACF analysis
+acf_plot = ggAcf(df$NOK, lag.max = 20) + 
+  ggtitle("Autocorrelation Function (ACF)") +
+  theme_minimal()
+
+pacf_plot = ggPacf(df$NOK, lag.max = 20) + 
+  ggtitle("Partial Autocorrelation Function (PACF)") +
+  theme_minimal()
+
+# Display results
+print(acf_plot)
+print(pacf_plot)
+```
+
+## Plot of the data 
+```{r}
+# Create the time series plot
+df %>% ggplot(aes(x = DAY, y = NOK)) +
+  geom_line(color = "blue") +                  # Line plot
+  labs(
+    title = "Time Series of Norwegian krone (NOK)",
+    x = "DAY",
+    y = "NOK"
+  ) +
+  theme_minimal() +                           # Clean theme
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+```
+> The average NOK for the period 1999-01-04 to 2024-12-13 is 8.837 with a median of 8.309.
+> The data varies with 1.389 (variance).
+> The minimum exchange rate ever experienced was 7.223 while the highest was 12.316. 
+> The series shows a long-term upward trend, particularly pronounced from around 2013 onwards after a downward trend experienced between 2009 and 2012.
+> No obvious regular seasonal patterns are visible in the data
+
+```{r}
+# Perform decomposition
+decomp = decompose(ts_data)
+
+plot(decomp)
+```
+
+> Upward trend with noticeable fluctuations
+> The consistent thickness of the seasonal band suggest very minimal or no seasonal component
+>This decomposition suggests that the time series is primarily driven by its trend component, with significant random variations and minimal or no seasonal effects
+
+```{r}
+# Use diff() to remove the trend
+data_diff = diff(ts_data)
+
+# Plot the differences data to observe the trend elimination
+plot(data_diff, main = "Differenced Time Series", ylab = "Differenced Values", xlab = "Time")
+```
+
+
+## Forecasting Time Series for the Next 20 Observations (No Seasonality)
+### Forecasting with ARIMA (Non-Seasonal)
+```{r}
+# Fit an ARIMA model to the data
+arima_model = auto.arima(data_diff)
+
+# Forecast the next 20 observations
+forecasted_values = forecast(arima_model, h = 20)
+
+# Plot the forecast
+plot(forecasted_values)
+```
+
+## Comparing Precision of Standard Forecasting Methods
+
+```{r splitting data}
+# Set the proportion for training data 
+train_size = floor((length(data_diff)-20)/length(data_diff)* length(data_diff))
+train_data = data_diff[1:train_size]
+test_data = data_diff[(train_size + 1):length(data_diff)]
+h = length(test_data)
+
+# Plot the training and test sets
+plot(train_data, col = "blue", xlim = c(1, length(data_diff)), main = "Train/Test Split")
+lines(test_data, col = "red")
+```
+
+```{r Naive}
+# Naive forecast
+naive_forecast = naive(train_data, h = h)
+plot(naive_forecast)
+naive_rmse = sqrt(mean((naive_forecast$mean - test_data)^2))
+```
+
+```{r Random Walk}
+# Random Walk with Drift
+rw_drift_forecast = rwf(train_data, h = h, drift = TRUE)
+plot(rw_drift_forecast)
+rw_drift_rmse = sqrt(mean((rw_drift_forecast$mean - test_data)^2))
+```
+
+```{r Decompose}
+# Decompose the time series
+decomposed_data = decompose(ts(train_data, frequency = 5))
+
+# Use the trend component to forecast
+trend_forecast = forecast(decomposed_data$trend, h = h)
+plot(trend_forecast)
+trend_rmse = sqrt(mean((trend_forecast$mean - test_data)^2))
+```
+
+```{r Exponential smoothing}
+# Fit an exponential smoothing model
+ets_model = ets(train_data)
+
+# Forecast using the ETS model
+ets_forecast = forecast(ets_model, h = h)
+plot(ets_forecast)
+ets_rmse = sqrt(mean((ets_forecast$mean - test_data)^2))
+
+```
+
+```{r ARMA Family Model (ARIMA)}
+# Fit an ARIMA model
+arima_model = auto.arima(train_data)
+
+# Forecast using the ARIMA model
+arima_forecast = forecast(arima_model, h = h)
+plot(arima_forecast)
+arima_rmse = sqrt(mean((arima_forecast$mean - test_data)^2))
+
+```
+
+```{r}
+# Print RMSE for each model
+cat("RMSE for Naive Forecast: ", naive_rmse, "\n")
+cat("RMSE for Random Walk with Drift: ", rw_drift_rmse, "\n")
+cat("RMSE for Trend Forecast (Decomposition): ", trend_rmse, "\n")
+cat("RMSE for Exponential Smoothing: ", ets_rmse, "\n")
+cat("RMSE for ARIMA Model: ", arima_rmse, "\n")
+```
+
+## Hybrid ARIMA and Exponential Smoothing with Structural Break Adjustment
+
+```{r}
+# Perform the Bai-Perron test to detect multiple breaks
+# using mbreaks
+#breakpoints_mb =  mdl('NOK',data=df,eps1=0.15)
+
+#using strucchange
+bp_test = breakpoints(ts_data ~ 1)
+
+summary(bp_test)
+
+# extracting breakingpoints
+breakpoints = breakpoints(bp_test)
+
+# Plot detected breaks
+plot(bp_test)
+```
+
+```{r}
+plot(ts_data)
+lines(bp_test)
+
+## confidence intervals
+ci.df = confint(bp_test)
+ci.df
+lines(ci.df)
+```
+
+```{r}
+# Assuming 'data' is your dataset (e.g., a time series)
+breakpoints = breakpoints$breakpoints  # The breakpoints indices
+
+# Extract the corresponding rows or values from the dataset
+breakpoint_values = df[breakpoints,]
+
+# Print the corresponding values
+breakpoint_values
+```
+
+
+```{r}
+# Create dummy variables for breaks
+n = length(train_data)
+dummy_matrix = matrix(0, nrow = n, ncol = length(breakpoints) + 1)
+
+# Assign dummy variables for each segment
+dummy_matrix[1:breakpoints[1], 1] <- 1
+
+for (i in 2:length(breakpoints)) {
+  dummy_matrix[(breakpoints[i-1] + 1):breakpoints[i], i] <- 1
+}
+
+dummy_matrix[(breakpoints[length(breakpoints)] + 1):n, length(breakpoints) + 1] <- 1
+
+# Apply Box-Cox transformation to stabilize variance
+lambda = BoxCox.lambda(train_data)
+data_transformed = BoxCox(train_data, lambda)
+
+# Fit ARIMA model to transformed data with external regressors
+arima_model = auto.arima(data_transformed, xreg = dummy_matrix)
+
+# Fit ETS model to recent regime
+ets_model = ets(data_transformed)
+
+# Generate forecasts from both models
+# Create future dummy variables
+future_dummies = matrix(dummy_matrix[n,], nrow = h, ncol = length(breakpoints) + 1, byrow = TRUE)
+
+arima_fc = forecast(arima_model, h = h, xreg = future_dummies)
+ets_fc = forecast(ets_model, h = h)
+
+# Combine forecasts with weighted average
+# Weight more recent regime higher
+weights = c(0.7, 0.3)  # ARIMA and ETS weights
+
+# Convert ets_fc$mean to zoo object (aligned to the time index of arima_fc_aligned)
+arima_fc_aligned = zoo(arima_fc$mean, order.by = time(ets_fc$mean))
+ets_fc_aligned = zoo(ets_fc$mean, order.by = time(arima_fc_aligned))
+
+# Perform the weighted sum of the forecasts
+combined_forecast = weights[1] * arima_fc_aligned + weights[2] * ets_fc_aligned
+
+# 9. Inverse Box-Cox transformation
+final_fc = InvBoxCox(combined_forecast, lambda)
+```
+
+```{r}
+# Calculate RMSE for hybrid method
+hybrid_rmse = sqrt(mean((test_data - final_fc)^2))
+hybrid_rmse
+```
+
+
