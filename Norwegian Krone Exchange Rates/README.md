@@ -9,8 +9,8 @@ The dataset consists of **6,648 observations**, focusing on weekdays to capture 
 - Structural breakpoints linked to global financial crises and Norway's oil-dependent economy.
 - The analysis compares various forecasting models, including Naïve, Random Walk with Drift, ETS, ARIMA, and a hybrid approach.
 
-### Time Series Plot
-![NOK Time Series Plot](path/to/timeseries_plot.png)  
+### Trend in EUR = NOK Exchange Rate
+![NOK Time Series Plot](https://github.com/AlexGit-05/Data-Mining/blob/main/Norwegian%20Krone%20Exchange%20Rates/time%20series.png)
 This plot shows the daily NOK/EUR exchange rate from 1999 to 2024, illustrating long-term trends and fluctuations.
 
 ---
@@ -30,9 +30,5 @@ This plot shows the daily NOK/EUR exchange rate from 1999 to 2024, illustrating 
 
 ---
 
-## Installation
-
-1. Clone this repository:
-   ```bash
-   git clone https://github.com/<username>/nok-exchange-analysis.git
-   cd nok-exchange-analysis
+## Results
+The ARIMA model demonstrated competitive performance with an RMSE of 0.0399.
